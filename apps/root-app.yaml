@@ -1,0 +1,25 @@
+# ArgoCD App-of-Apps root Application
+# This single Application manages all other Applications in the apps/ directory.
+# The root-app itself is bootstrapped by Terraform (kubernetes_manifest.argocd_root_app in k8s.tf).
+# After bootstrap, everything is managed by ArgoCD automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+  # Note: finalizer intentionally omitted to prevent Terraform destroy timeouts.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CargoTrack-Org/cargotrack-gitops.git
+    targetRevision: main
+    path: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
