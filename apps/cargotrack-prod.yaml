@@ -1,16 +1,16 @@
-# CargoTrack Dev Application
+# CargoTrack Prod Application
 # Managed by: ArgoCD (app-of-apps, deployed via root-app)
-# Bootstrapped by: Terraform (kubernetes_manifest.cargotrack_dev_app in k8s.tf)
+# Bootstrapped by: Terraform (kubernetes_manifest.cargotrack_prod_app in k8s.tf)
 #
 # NOTE: This file exists for documentation and ArgoCD UI visibility.
 # The authoritative Application CR is the one created by Terraform, which injects:
-#   - global.namespace = cargotrack-dev
+#   - global.namespace = cargotrack-prod
 #   - IRSA role ARNs (cannot be static — they are Terraform outputs)
 # ArgoCD will not re-create this if Terraform already owns it.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: cargotrack-dev
+  name: cargotrack-prod
   namespace: argocd
   # Note: finalizer intentionally omitted to prevent Terraform destroy timeouts.
   # ALB cleanup is handled by the pre_destroy_ingress_cleanup null_resource in k8s.tf.
@@ -23,13 +23,13 @@ spec:
     helm:
       valueFiles:
         - values.yaml
-        - values-dev.yaml
+        - values-prod.yaml
       # IRSA role ARNs and namespace are injected by Terraform as Helm parameters.
       # They cannot be hardcoded here because they are Terraform outputs.
-      # See: environments/dev/k8s.tf — kubernetes_manifest.cargotrack_dev_app
+      # See: environments/dev/k8s.tf — kubernetes_manifest.cargotrack_prod_app
   destination:
     server: https://kubernetes.default.svc
-    namespace: cargotrack-dev
+    namespace: cargotrack-prod
   syncPolicy:
     automated:
       prune: true

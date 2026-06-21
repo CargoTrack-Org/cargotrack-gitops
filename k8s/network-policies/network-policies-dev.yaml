@@ -1,0 +1,202 @@
+# Network Policies — cargotrack-dev namespace
+# ─────────────────────────────────────────────────────────────────────────────
+# Default deny-all ingress + explicit allow rules for service-to-service comms.
+#
+# Traffic model:
+#   Internet → ALB → frontend (port 8080)
+#   Internet → ALB → core-service (port 4000) via /api/*
+#   frontend → core-service (port 4000)
+#   core-service → ai-service (port 4002)
+#   core-service → document-service (port 4001)
+#   all pods → kube-dns (port 53 UDP/TCP) — CRITICAL for service discovery
+#   AWS LBC health probes → all pods (from node CIDR, port varies)
+# ─────────────────────────────────────────────────────────────────────────────
+
+---
+# ── 1. Default Deny: block all ingress in cargotrack-dev ─────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: default-deny
+spec:
+  podSelector: {}  # Applies to ALL pods in the namespace
+  policyTypes:
+    - Ingress
+
+---
+# ── 2. Allow: ALB health probes → all pods ───────────────────────────────────
+# AWS ALB sends health check probes from node-internal IPs.
+# The node CIDR for us-east-1 EKS cluster is 10.0.0.0/8 (private range).
+# We allow all pods to receive health probe traffic from within the VPC.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-health-probes
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: alb-health
+spec:
+  podSelector: {}  # All pods can receive ALB health probes
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8  # VPC CIDR — covers ALB nodes and health check IPs
+      ports:
+        - protocol: TCP
+          port: 8080    # frontend (nginx)
+        - protocol: TCP
+          port: 4000    # core-service
+        - protocol: TCP
+          port: 4001    # document-service
+        - protocol: TCP
+          port: 4002    # ai-service
+
+---
+# ── 3. Allow: ALB → frontend (HTTP, port 8080) ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-frontend
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# ── 4. Allow: ALB → core-service (HTTP, port 4000) ───────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-core-service
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Also allow from frontend pods in same namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 4000
+
+---
+# ── 5. Allow: core-service → ai-service (port 4002) ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-core-to-ai-service
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: service-mesh
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4002
+
+---
+# ── 6. Allow: core-service → document-service (port 4001) ───────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-core-to-document-service
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: service-mesh
+spec:
+  podSelector:
+    matchLabels:
+      app: document-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4001
+
+---
+# ── 7. Allow: all pods → kube-dns (port 53 UDP/TCP) ─────────────────────────
+# Without this, pods cannot resolve Kubernetes service DNS names.
+# kube-dns lives in kube-system namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-kube-dns
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: dns
+spec:
+  podSelector: {}  # All pods need DNS
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

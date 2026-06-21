@@ -1,0 +1,189 @@
+# Network Policies — cargotrack-prod namespace
+# ─────────────────────────────────────────────────────────────────────────────
+# Identical policy set to cargotrack-dev, scoped to cargotrack-prod.
+# In a full multi-account setup, prod would have stricter egress rules.
+# For this single-cluster evaluation, the same traffic model applies.
+# ─────────────────────────────────────────────────────────────────────────────
+
+---
+# ── 1. Default Deny: block all ingress in cargotrack-prod ────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# ── 2. Allow: ALB health probes → all pods ───────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-health-probes
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: alb-health
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 4000
+        - protocol: TCP
+          port: 4001
+        - protocol: TCP
+          port: 4002
+
+---
+# ── 3. Allow: ALB → frontend (HTTP, port 8080) ───────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-frontend
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# ── 4. Allow: ALB → core-service (HTTP, port 4000) ───────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-core-service
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 4000
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 4000
+
+---
+# ── 5. Allow: core-service → ai-service (port 4002) ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-core-to-ai-service
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: service-mesh
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4002
+
+---
+# ── 6. Allow: core-service → document-service (port 4001) ───────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-core-to-document-service
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: service-mesh
+spec:
+  podSelector:
+    matchLabels:
+      app: document-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4001
+
+---
+# ── 7. Allow: all pods → kube-dns (port 53 UDP/TCP) ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-kube-dns
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
