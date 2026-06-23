@@ -1,0 +1,38 @@
+# CargoTrack — ai-dev ArgoCD Application
+# Managed by: ArgoCD root-app (App-of-Apps pattern)
+#
+# ai-service specific:
+#   - MOCK_AGENT=false, TEXTRACT_ENABLED=true, BEDROCK_MODEL_ID=nova-lite (in values-dev.yaml)
+#   - OTel inject-nodejs=false (suppresses log flooding — see deployment.yaml annotation)
+#   - SQS polling loop runs continuously — terminationGracePeriodSeconds: 60
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ai-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CargoTrack-Org/cargotrack-helm.git
+    targetRevision: main
+    path: ai-service
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cargotrack-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        maxDuration: 3m
+        factor: 2

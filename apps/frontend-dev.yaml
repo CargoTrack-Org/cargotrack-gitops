@@ -1,0 +1,39 @@
+# CargoTrack — frontend-dev ArgoCD Application
+# Managed by: ArgoCD root-app (App-of-Apps pattern)
+# Bootstrapped by: root-app watching cargotrack-gitops/apps/
+#
+# NOTE: IRSA ARN for frontend is not needed — nginx makes no AWS API calls.
+# Global namespace is set in values-dev.yaml (global.namespace: cargotrack-dev).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: frontend-dev
+  namespace: argocd
+  # No cascade-delete finalizer — avoids Terraform destroy timeout issues.
+  # ALB cleanup handled by null_resource.pre_destroy_ingress_cleanup in k8s.tf.
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CargoTrack-Org/cargotrack-helm.git
+    targetRevision: main
+    path: frontend
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cargotrack-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false   # Namespace owned by Terraform
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        maxDuration: 3m
+        factor: 2
