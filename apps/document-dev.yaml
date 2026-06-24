@@ -1,4 +1,4 @@
-# CargoTrack — document-dev ArgoCD Application
+﻿# CargoTrack â€” document-dev ArgoCD Application
 # Managed by: ArgoCD root-app (App-of-Apps pattern)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/CargoTrack-Org/cargotrack-helm.git
-    targetRevision: main
+    targetRevision: develop
     path: document-service
     helm:
       valueFiles:

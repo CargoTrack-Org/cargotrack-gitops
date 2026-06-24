@@ -1,9 +1,9 @@
-# CargoTrack — core-dev ArgoCD Application
+﻿# CargoTrack â€” core-dev ArgoCD Application
 # Managed by: ArgoCD root-app (App-of-Apps pattern)
 #
-# IRSA: serviceAccount.roleArn is in values-dev.yaml — no Terraform parameter injection needed.
-# cargotrack-aws-config ConfigMap (RDS endpoint, SQS URLs etc.) owned by Terraform — exists before sync.
-# cargotrack-secrets Secret owned by Terraform/ESO — exists before sync.
+# IRSA: serviceAccount.roleArn is in values-dev.yaml â€” no Terraform parameter injection needed.
+# cargotrack-aws-config ConfigMap (RDS endpoint, SQS URLs etc.) owned by Terraform â€” exists before sync.
+# cargotrack-secrets Secret owned by Terraform/ESO â€” exists before sync.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/CargoTrack-Org/cargotrack-helm.git
-    targetRevision: main
+    targetRevision: develop
     path: core-service
     helm:
       valueFiles:
