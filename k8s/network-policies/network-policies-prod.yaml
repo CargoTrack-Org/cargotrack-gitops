@@ -6,7 +6,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ---
-# ── 1. Default Deny: block all ingress in cargotrack-prod ────────────────────
+# ── 1a. Default Deny: block all ingress in cargotrack-prod ───────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -20,6 +20,27 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
+
+---
+# ── 1b. Default Deny: block all egress in cargotrack-prod ────────────────────
+# Egress is still allowed for:
+#   - DNS (port 53) via allow-egress-to-kube-dns below
+#   - AWS services via VPC endpoints (port 443, within 10.0.0.0/8)
+#   - RDS PostgreSQL (port 5432, within 10.0.0.0/8)
+#   - In-cluster service-to-service calls via pod selectors
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
 
 ---
 # ── 2. Allow: ALB health probes → all pods ───────────────────────────────────
@@ -187,3 +208,120 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+
+---
+# ── 8. Allow: backend pods → AWS services via VPC endpoints (port 443) ───────
+# Covers: Secrets Manager, SSM, KMS, ECR, SQS, EventBridge, Bedrock,
+#         Textract, DynamoDB, CloudWatch — all reachable through interface
+#         VPC endpoints or the S3 gateway endpoint within 10.0.0.0/8.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-aws-services
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector: {}  # All pods may need to call AWS APIs
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8  # VPC CIDR covers all VPC endpoints and NAT
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ── 9. Allow: core-service → RDS PostgreSQL (port 5432) ──────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-core-to-rds
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ── 10. Allow: frontend → core-service and document-service (egress) ─────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-frontend-to-core
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4000
+    - to:
+        - podSelector:
+            matchLabels:
+              app: document-service
+      ports:
+        - protocol: TCP
+          port: 4001
+
+---
+# ── 11. Allow: core-service → ai-service and document-service (egress) ───────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-core-to-backends
+  namespace: cargotrack-prod
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ai-service
+      ports:
+        - protocol: TCP
+          port: 4002
+    - to:
+        - podSelector:
+            matchLabels:
+              app: document-service
+      ports:
+        - protocol: TCP
+          port: 4001
