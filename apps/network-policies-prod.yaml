@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: network-policies-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/CargoTrack-Org/cargotrack-gitops.git
+    targetRevision: main
+    path: k8s/network-policies
+    directory:
+      include: "network-policies-prod.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cargotrack-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        maxDuration: 3m
+        factor: 2

@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 ---
-# ── 1. Default Deny: block all ingress in cargotrack-dev ─────────────────────
+# ── 1a. Default Deny: block all ingress in cargotrack-dev ────────────────────
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -27,6 +27,29 @@ spec:
   podSelector: {}  # Applies to ALL pods in the namespace
   policyTypes:
     - Ingress
+
+---
+# ── 1b. Default Deny: block all egress in cargotrack-dev ─────────────────────
+# Egress is still allowed for:
+#   - DNS (port 53) via allow-egress-to-kube-dns below
+#   - AWS services (Secrets Manager, SQS, Bedrock, etc.) via VPC endpoints
+#     — pods reach these through the VPC endpoint IPs on port 443, which
+#       are in the 10.0.0.0/8 range and permitted by the VPC routing layer.
+# If pods need explicit egress to the internet or AWS APIs via NAT, add a
+# targeted egress rule here rather than removing this default-deny.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: default-deny
+spec:
+  podSelector: {}  # Applies to ALL pods in the namespace
+  policyTypes:
+    - Egress
 
 ---
 # ── 2. Allow: ALB health probes → all pods ───────────────────────────────────
@@ -200,3 +223,125 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+
+---
+# ── 8. Allow: backend pods → AWS services via VPC endpoints (port 443) ───────
+# Covers: Secrets Manager, SSM, KMS, ECR, SQS, EventBridge, Bedrock,
+#         Textract, DynamoDB, CloudWatch — all reachable through interface
+#         VPC endpoints or the S3 gateway endpoint within 10.0.0.0/8.
+# NAT gateway (also in 10.0.0.0/8) is used as fallback for any AWS service
+# without a dedicated VPC endpoint.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-to-aws-services
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector: {}  # All pods may need to call AWS APIs
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8  # VPC CIDR covers all VPC endpoints and NAT
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ── 9. Allow: core-service → RDS PostgreSQL (port 5432) ──────────────────────
+# core-service is the only pod that connects to RDS directly.
+# RDS lives outside the cluster in the db subnets (still within 10.0.0.0/8).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-core-to-rds
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ── 10. Allow: frontend → core-service (port 4000) ───────────────────────────
+# nginx inside the frontend pod proxies /api/* to core-service in-cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-frontend-to-core
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: core-service
+      ports:
+        - protocol: TCP
+          port: 4000
+    - to:
+        - podSelector:
+            matchLabels:
+              app: document-service
+      ports:
+        - protocol: TCP
+          port: 4001
+
+---
+# ── 11. Allow: core-service → ai-service and document-service (egress) ───────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-core-to-backends
+  namespace: cargotrack-dev
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: cargotrack
+    policy-type: egress
+spec:
+  podSelector:
+    matchLabels:
+      app: core-service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ai-service
+      ports:
+        - protocol: TCP
+          port: 4002
+    - to:
+        - podSelector:
+            matchLabels:
+              app: document-service
+      ports:
+        - protocol: TCP
+          port: 4001
